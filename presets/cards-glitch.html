@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cards Glitch</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box }
+    body { background: #080808; overflow: hidden }
+    #w { width: 100vw; height: 100vh; background: #080808; position: relative; overflow: hidden }
+    canvas { display: block; width: 100%; height: 100%; position: absolute; top: 0; left: 0 }
+    #cg { pointer-events: none; z-index: 10 }
+  </style>
+</head>
+<body>
+  <div id="w">
+    <canvas id="c"></canvas>
+    <canvas id="cg"></canvas>
+  </div>
+  <script>
+    const cv = document.getElementById('c'), ctx = cv.getContext('2d', { alpha: false });
+    const cg = document.getElementById('cg'), gctx = cg.getContext('2d');
+    const wp = document.getElementById('w');
+    let W, H;
+    const cardCount = 12;
+
+    // ── FPS limité à 30 ──
+    const TARGET_MS = 1000 / 30;
+    let lastFrame = 0;
+
+    // ── SCANLINE PATTERN ──
+    let scanPattern = null;
+    function buildScanPattern() {
+      const pc = document.createElement('canvas');
+      pc.width = 1; pc.height = 4;
+      const px = pc.getContext('2d');
+      px.fillStyle = 'rgba(0,0,0,0.06)';
+      px.fillRect(0, 0, 1, 1);
+      scanPattern = gctx.createPattern(pc, 'repeat');
+    }
+
+    // ── VIGNETTE PRÉ-CALCULÉE ──
+    let vigCanvas = null;
+    function buildVigCanvas() {
+      vigCanvas = document.createElement('canvas');
+      vigCanvas.width = W; vigCanvas.height = H;
+      const vc = vigCanvas.getContext('2d');
+      const vig = vc.createRadialGradient(W/2, H/2, H*0.25, W/2, H/2, H*0.9);
+      vig.addColorStop(0, 'rgba(0,0,0,0)');
+      vig.addColorStop(1, 'rgba(0,0,0,0.6)');
+      vc.fillStyle = vig; vc.fillRect(0, 0, W, H);
+    }
+
+    // ── GLOW OVERLAY PRÉ-CALCULÉ ──
+    let glowCanvas = null;
+    function buildGlowCanvas() {
+      glowCanvas = document.createElement('canvas');
+      glowCanvas.width = W; glowCanvas.height = H;
+      const gc = glowCanvas.getContext('2d');
+      gc.globalCompositeOperation = 'screen';
+      const bg = gc.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.max(W,H)*0.6);
+      bg.addColorStop(0, 'rgba(60,60,100,0.04)');
+      bg.addColorStop(1, 'rgba(0,0,0,0)');
+      gc.fillStyle = bg; gc.fillRect(0, 0, W, H);
+    }
+
+    function resize() {
+      W = wp.clientWidth; H = wp.clientHeight;
+      cv.width = W; cv.height = H;
+      cg.width = W; cg.height = H;
+      buildScanPattern();
+      buildVigCanvas();
+      buildGlowCanvas();
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    const SUITS = ['♠','♥','♦','♣'], VALS = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'], RED = ['♥','♦'];
+    function rnd(a, b) { return a + Math.random() * (b - a); }
+
+    // ── GLOW LINES (6 au lieu de 10, sans gradient recalculé trop souvent) ──
+    class GlowLine {
+      constructor() { this.reset(true); }
+      reset(init = false) {
+        this.x = rnd(0, W);
+        this.y = init ? rnd(-H, H) : -rnd(20, 300);
+        this.len = rnd(40, 200);
+        this.vy = rnd(1.5, 4.5);
+        this.alpha = rnd(0.12, 0.45);
+        this.width = rnd(0.4, 1.2);
+        this._grad = null; this._gradY = -9999;
+      }
+      update(dt) {
+        this.y += this.vy * dt;
+        if (this.y - this.len > H) this.reset();
+      }
+      draw(c) {
+        if (Math.abs(this.y - this._gradY) > 15) {
+          const g = c.createLinearGradient(this.x, this.y - this.len, this.x, this.y);
+          g.addColorStop(0, 'rgba(255,255,255,0)');
+          g.addColorStop(0.6, 'rgba(255,255,255,0.85)');
+          g.addColorStop(1, 'rgba(255,255,255,0)');
+          this._grad = g; this._gradY = this.y;
+        }
+        c.globalAlpha = this.alpha;
+        c.strokeStyle = this._grad;
+        c.lineWidth = this.width;
+        c.beginPath(); c.moveTo(this.x, this.y - this.len); c.lineTo(this.x, this.y); c.stroke();
+        c.globalAlpha = 1; c.lineWidth = 1;
+      }
+    }
+
+    function drawScanLines(c) {
+      if (!scanPattern) return;
+      c.save(); c.fillStyle = scanPattern; c.fillRect(0, 0, W, H); c.restore();
+    }
+
+    // ── GLITCH LINE (sans shadowBlur) ──
+    class GlitchLine {
+      constructor(delay = 0) {
+        this.x = rnd(0, W); this.y = rnd(0, H);
+        this.rot = rnd(0, Math.PI*2);
+        this.rotSpd = rnd(0.02, 0.06) * (Math.random() > 0.5 ? 1 : -1);
+        this.life = -delay; this.maxLife = rnd(25, 55);
+        this.alpha = rnd(0.07, 0.18);
+        this.width = rnd(0.4, 0.9);
+        this.isBlue = Math.random() > 0.6;
+        this.type = Math.floor(Math.random() * 3);
+        this.r = rnd(8, 28);
+        this.arc0 = rnd(0, Math.PI*2);
+        this.arcSpan = rnd(Math.PI*0.2, Math.PI*0.9) * (Math.random() > 0.5 ? 1 : -1);
+        this.cx1 = rnd(-22,22); this.cy1 = rnd(-22,22);
+        this.cx2 = rnd(-22,22); this.cy2 = rnd(-22,22);
+        this.ex = rnd(-30,30); this.ey = rnd(-30,30);
+        this.wSegs = Math.floor(rnd(3,5));
+        this.wLen = rnd(15,40); this.wAmp = rnd(3,10);
+        this.wPts = [];
+        for (let i = 0; i <= this.wSegs; i++) {
+          this.wPts.push([(i/this.wSegs - 0.5)*this.wLen, Math.sin(i/this.wSegs*Math.PI*rnd(1.5,3))*this.wAmp*(Math.random()>0.5?1:-1)]);
+        }
+      }
+      update(dt) { this.rot += this.rotSpd * dt; this.life += dt; return this.life < this.maxLife; }
+      draw(c) {
+        if (this.life < 0) return;
+        const t = this.life / this.maxLife;
+        const a = this.alpha * (t < 0.2 ? t/0.2 : t > 0.75 ? (1-t)/0.25 : 1);
+        const col = this.isBlue ? `rgba(180,220,255,${a.toFixed(3)})` : `rgba(255,255,255,${a.toFixed(3)})`;
+        c.save();
+        c.translate(this.x, this.y); c.rotate(this.rot);
+        c.strokeStyle = col; c.lineWidth = this.width;
+        c.lineCap = 'round'; c.lineJoin = 'round';
+        c.beginPath();
+        if (this.type === 0) {
+          c.arc(0, 0, this.r, this.arc0, this.arc0 + this.arcSpan);
+        } else if (this.type === 1) {
+          const hx = this.ex/2, hy = this.ey/2;
+          c.moveTo(-hx,-hy); c.bezierCurveTo(this.cx1,this.cy1,this.cx2,this.cy2,hx,hy);
+        } else {
+          c.moveTo(this.wPts[0][0], this.wPts[0][1]);
+          for (let i = 1; i < this.wPts.length-1; i++) {
+            const mx2 = (this.wPts[i][0]+this.wPts[i+1][0])/2;
+            const my2 = (this.wPts[i][1]+this.wPts[i+1][1])/2;
+            c.quadraticCurveTo(this.wPts[i][0],this.wPts[i][1],mx2,my2);
+          }
+        }
+        c.stroke(); c.restore();
+      }
+    }
+
+    // ── GLITCH BLOCK ──
+    class GlitchBlock {
+      constructor() {
+        this.y = rnd(0,H); this.h = rnd(1,6);
+        this.shift = rnd(-35,35);
+        this.life = 0; this.maxLife = rnd(3,10);
+        this.alpha = rnd(0.06, 0.2);
+      }
+      update(dt) { this.life += dt; return this.life < this.maxLife; }
+      draw(c) {
+        const t = this.life/this.maxLife;
+        const a = this.alpha * (t < 0.15 ? t/0.15 : t > 0.75 ? (1-t)/0.25 : 1);
+        c.save(); c.globalAlpha = a;
+        c.fillStyle = 'rgba(200,220,255,0.6)';
+        c.fillRect(this.shift, Math.floor(this.y), W, Math.max(1,Math.floor(this.h)));
+        c.restore();
+      }
+    }
+
+    // ── TIMERS ──
+    let _lastTick = 0;
+    let glitchBurst = 0, glitchBurstMax = 0;
+    function tickTimers(now) {
+      if (now - _lastTick < 250) return; _lastTick = now;
+      if (Math.random() < 0.28) { glitchBurst = rnd(15,25); glitchBurstMax = glitchBurst; }
+      // spawn glitch lines (moins fréquent)
+      if (Math.random() < 0.4) {
+        const n = Math.floor(rnd(1,3));
+        for (let i = 0; i < n; i++) glitchLines.push(new GlitchLine(rnd(0,30)));
+      }
+      // spawn glitch blocks (rare)
+      if (Math.random() < 0.15) {
+        glitchBlocks.push(new GlitchBlock());
+      }
+    }
+
+    // ── CARD DRAWING ──
+    function drawCardBack(c, w, h) {
+      const pad = w*0.1, iw = w-pad*2, ih = h-pad*2;
+      c.save(); c.beginPath(); c.rect(-w/2+pad,-h/2+pad,iw,ih); c.clip();
+      const step = w*0.18;
+      c.strokeStyle = 'rgba(255,255,255,0.06)'; c.lineWidth = 0.5;
+      for (let x = -w; x < w; x += step) {
+        c.beginPath(); c.moveTo(x,-h); c.lineTo(x+h*2,h); c.stroke();
+        c.beginPath(); c.moveTo(x,-h); c.lineTo(x-h*2,h); c.stroke();
+      }
+      c.strokeStyle = 'rgba(255,255,255,0.1)'; c.lineWidth = 0.6;
+      c.strokeRect(-w/2+pad,-h/2+pad,iw,ih); c.restore();
+    }
+
+    function drawPips(c, val, suit, w, h, color) {
+      const layouts = {'2':[[0,-0.28],[0,0.28]],'3':[[0,-0.28],[0,0],[0,0.28]],'4':[[-0.22,-0.28],[0.22,-0.28],[-0.22,0.28],[0.22,0.28]],'5':[[-0.22,-0.28],[0.22,-0.28],[0,0],[-0.22,0.28],[0.22,0.28]],'6':[[-0.22,-0.28],[0.22,-0.28],[-0.22,0],[0.22,0],[-0.22,0.28],[0.22,0.28]],'7':[[-0.22,-0.28],[0.22,-0.28],[0,-0.1],[-0.22,0],[0.22,0],[-0.22,0.28],[0.22,0.28]],'8':[[-0.22,-0.28],[0.22,-0.28],[0,-0.1],[-0.22,0],[0.22,0],[0,0.1],[-0.22,0.28],[0.22,0.28]],'9':[[-0.22,-0.3],[0.22,-0.3],[-0.22,-0.1],[0.22,-0.1],[0,0],[-0.22,0.1],[0.22,0.1],[-0.22,0.3],[0.22,0.3]],'10':[[-0.22,-0.3],[0.22,-0.3],[0,-0.18],[-0.22,-0.08],[0.22,-0.08],[-0.22,0.08],[0.22,0.08],[0,0.18],[-0.22,0.3],[0.22,0.3]]};
+      const pips = layouts[val]; if (!pips) return;
+      const fs = Math.max(6, w*0.17);
+      c.font = `${fs}px sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = color;
+      const area = h*0.54;
+      pips.forEach(([px,py]) => { c.save(); c.translate(px*w*0.9,py*area); if(py>0.05)c.rotate(Math.PI); c.fillText(suit,0,0); c.restore(); });
+    }
+
+    function drawFace(c, val, suit, w, h, color) {
+      const pad = w*0.12, ip = pad*1.8;
+      c.strokeStyle = 'rgba(255,255,255,0.07)'; c.lineWidth = 0.6;
+      c.strokeRect(-w/2+pad*1.4,-h/2+pad*1.4,w-pad*2.8,h-pad*2.8);
+      c.font = `bold ${w*0.42}px sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillStyle = color; c.globalAlpha *= 0.18; c.fillText(suit,0,0); c.globalAlpha /= 0.18;
+      c.font = `500 ${w*0.3}px sans-serif`; c.fillStyle = color;
+      c.globalAlpha *= 0.7; c.fillText(val,0,0); c.globalAlpha /= 0.7;
+    }
+
+    function cardPath(c, w, h) {
+      const r = w*0.09; c.beginPath();
+      c.moveTo(-w/2+r,-h/2); c.lineTo(w/2-r,-h/2); c.quadraticCurveTo(w/2,-h/2,w/2,-h/2+r);
+      c.lineTo(w/2,h/2-r); c.quadraticCurveTo(w/2,h/2,w/2-r,h/2);
+      c.lineTo(-w/2+r,h/2); c.quadraticCurveTo(-w/2,h/2,-w/2,h/2-r);
+      c.lineTo(-w/2,-h/2+r); c.quadraticCurveTo(-w/2,-h/2,-w/2+r,-h/2); c.closePath();
+    }
+
+    class Card {
+      constructor() { this.reset(true); }
+      reset(init = false) {
+        this.cw = rnd(52,82); this.ch = this.cw*1.44;
+        const minCw = 52, maxCw = 82;
+        this.depthFactor = (this.cw - minCw) / (maxCw - minCw);
+        const speedScale = 0.5 + 0.5*this.depthFactor;
+        this.x = rnd(-this.cw, W+this.cw);
+        this.y = init ? rnd(-H, 20) : -this.ch - rnd(0,400);
+        this.vy = rnd(0.7,1.8)*speedScale; this.vx = rnd(-0.3,0.3)*speedScale;
+        this.rot = rnd(-Math.PI,Math.PI); this.vrot = rnd(-0.012,0.012)*speedScale;
+        this.suit = SUITS[Math.floor(Math.random()*4)];
+        this.val = VALS[Math.floor(Math.random()*13)];
+        this.isRed = RED.includes(this.suit);
+        this.alpha = rnd(0.65,0.97);
+        this.wobble = rnd(0,Math.PI*2); this.wobbleSpd = rnd(0.01,0.038);
+        this.flip = rnd(0,Math.PI*2); this.flipSpd = rnd(0.005,0.018);
+        this.scaleX = 1; this.shimmer = rnd(0,Math.PI*2);
+        this.faceUp = Math.random() > 0.42;
+        this.glitch = 0;
+        // Blur seulement pour les cartes très lointaines, et en CSS (pas canvas filter)
+        // On utilise une opacité réduite à la place du blur pour simuler la profondeur
+        this.depthAlpha = 0.5 + 0.5 * this.depthFactor;
+      }
+      update(dt) {
+        this.flip += this.flipSpd*dt; this.scaleX = Math.cos(this.flip);
+        this.shimmer += 0.032*dt; this.wobble += this.wobbleSpd*dt;
+        this.y += this.vy*dt; this.x += this.vx*dt + Math.sin(this.wobble)*0.18*dt;
+        this.rot += this.vrot*dt;
+        this.y += this.depthFactor*0.2*dt;
+        if (glitchBurst > 0 && Math.random() < 0.03) this.glitch = rnd(3,8);
+        if (this.glitch > 0) { this.glitch -= dt; if (this.glitch < 0) this.glitch = 0; }
+        if (this.y > H + this.ch + 40) this.reset();
+      }
+      draw(c) {
+        const gl = this.glitch > 0;
+        c.save();
+        // Profondeur simulée par alpha au lieu de blur (blur canvas = très coûteux)
+        c.globalAlpha = this.alpha * this.depthAlpha;
+        c.translate(this.x, this.y);
+        if (gl) { c.translate(rnd(-3,3), rnd(-1,1)); }
+        c.rotate(this.rot);
+        c.scale(this.scaleX, 1);
+        const w = this.cw, ch = this.ch;
+        const actualFace = this.scaleX >= 0 ? this.faceUp : !this.faceUp;
+        const mainColor = this.isRed ? 'rgba(200,60,60,0.9)' : 'rgba(160,180,255,0.9)';
+
+        // Fond de la carte (sans shadowBlur)
+        c.save(); cardPath(c, w, ch);
+        c.fillStyle = '#0a0a12'; c.fill(); c.restore();
+
+        c.save(); cardPath(c, w, ch); c.clip();
+        c.fillStyle = '#0f0f1a'; c.fillRect(-w/2,-ch/2,w,ch);
+
+        if (gl) {
+          const gy = rnd(-ch/2, ch/2);
+          c.fillStyle = 'rgba(255,255,255,0.06)'; c.fillRect(-w/2,gy,w,rnd(1,4));
+        }
+
+        if (!actualFace) {
+          drawCardBack(c, w, ch);
+          c.font = `${w*0.28}px sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+          c.fillStyle = 'rgba(255,255,255,0.08)'; c.fillText('♦',0,0);
+        } else {
+          const pd = w*0.095, fs = Math.max(8, w*0.22), sf = Math.max(7, w*0.17);
+          c.font = `500 ${fs}px sans-serif`; c.fillStyle = mainColor; c.textAlign = 'left'; c.textBaseline = 'top';
+          c.fillText(this.val, -w/2+pd, -ch/2+pd*0.6);
+          c.font = `${sf}px sans-serif`; c.fillText(this.suit, -w/2+pd, -ch/2+pd*0.6+fs+1);
+          c.save(); c.rotate(Math.PI); c.textAlign = 'left'; c.textBaseline = 'top';
+          c.font = `500 ${fs}px sans-serif`; c.fillStyle = mainColor;
+          c.fillText(this.val, -w/2+pd, -ch/2+pd*0.6);
+          c.font = `${sf}px sans-serif`; c.fillText(this.suit, -w/2+pd, -ch/2+pd*0.6+fs+1); c.restore();
+          if (this.val === 'A') { c.font = `${w*0.65}px sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = mainColor; c.fillText(this.suit,0,0); }
+          else if (['J','Q','K'].includes(this.val)) { drawFace(c,this.val,this.suit,w,ch,mainColor); }
+          else { drawPips(c,this.val,this.suit,w,ch,mainColor); }
+        }
+
+        // Shimmer simplifié (couleur fixe au lieu de gradient recalculé)
+        const sa = (Math.sin(this.shimmer)*0.5+0.5)*0.08;
+        c.globalAlpha = sa;
+        c.fillStyle = 'rgba(255,255,255,1)';
+        c.fillRect(-w/2,-ch/2,w*0.4,ch);
+
+        c.restore(); // fin clip
+
+        // Bordure
+        cardPath(c, w, ch);
+        c.strokeStyle = 'rgba(255,255,255,0.18)'; c.lineWidth = 0.85;
+        c.stroke();
+        c.restore();
+      }
+    }
+
+    // ── INIT ──
+    const cards = [];
+    for (let i = 0; i < cardCount; i++) cards.push(new Card());
+
+    const glowLines = [];
+    for (let i = 0; i < 6; i++) glowLines.push(new GlowLine());
+
+    let glitchLines = [];
+    let glitchBlocks = [];
+    const MAX_GLITCH_LINES = 15;
+    const MAX_GLITCH_BLOCKS = 8;
+
+    // ── MAIN LOOP ──
+    let last = 0;
+    function loop(ts) {
+      // Limite à ~30fps
+      if (ts - lastFrame < TARGET_MS) { requestAnimationFrame(loop); return; }
+      const dt = Math.min((ts - last) / 16.67, 3); last = ts; lastFrame = ts;
+
+      tickTimers(ts);
+
+      // CARD LAYER
+      ctx.fillStyle = '#080808'; ctx.fillRect(0,0,W,H);
+      if (vigCanvas) ctx.drawImage(vigCanvas,0,0);
+
+      if (glitchBurst > 0) glitchBurst -= dt;
+      for (const c of cards) { c.update(dt); c.draw(ctx); }
+
+      // GLITCH LAYER
+      gctx.clearRect(0,0,W,H);
+
+      for (const l of glowLines) { l.update(dt); l.draw(gctx); }
+
+      drawScanLines(gctx);
+
+      if (glitchLines.length > MAX_GLITCH_LINES) glitchLines.splice(0, glitchLines.length - MAX_GLITCH_LINES);
+      glitchLines = glitchLines.filter(l => { const alive = l.update(dt); if(alive) l.draw(gctx); return alive; });
+
+      if (glitchBlocks.length > MAX_GLITCH_BLOCKS) glitchBlocks.splice(0, glitchBlocks.length - MAX_GLITCH_BLOCKS);
+      glitchBlocks = glitchBlocks.filter(b => { const alive = b.update(dt); if(alive) b.draw(gctx); return alive; });
+
+      if (glitchBurst > 0) {
+        const intensity = glitchBurst / glitchBurstMax;
+        const lines = Math.floor(intensity * 5);
+        gctx.save();
+        for (let i = 0; i < lines; i++) {
+          const ry = rnd(0, H-4);
+          gctx.globalAlpha = rnd(0.04,0.15)*intensity;
+          gctx.fillStyle = 'rgba(180,210,255,0.5)';
+          gctx.fillRect(rnd(-50,50),ry,W,Math.max(1,Math.floor(rnd(1,3))));
+        }
+        gctx.restore();
+      }
+
+      // Glow overlay pré-calculé (pas recréé chaque frame)
+      if (glowCanvas) {
+        gctx.save();
+        gctx.globalCompositeOperation = 'screen';
+        gctx.drawImage(glowCanvas,0,0);
+        gctx.restore();
+      }
+
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
