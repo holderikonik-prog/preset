@@ -98,7 +98,7 @@ function resize(w, h) {
 }
 
 // Petal shapes
-function drawPetal(ctx, x, y, size, angle, opacity, type) {
+function drawPetal(ctx, x, y, size, angle, opacity, type, color) {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);
@@ -106,13 +106,7 @@ function drawPetal(ctx, x, y, size, angle, opacity, type) {
 
   if (type === 0) {
     // Classic 5-petal sakura
-    const colors = [
-      { fill: 'rgba(255,182,209,1)', stroke: 'rgba(240,130,165,0.6)' },
-      { fill: 'rgba(255,210,225,1)', stroke: 'rgba(240,160,185,0.5)' },
-      { fill: 'rgba(255,228,235,1)', stroke: 'rgba(230,150,175,0.4)' },
-      { fill: 'rgba(255,245,248,1)', stroke: 'rgba(220,160,185,0.35)' },
-    ];
-    const c = colors[Math.floor(Math.random() * colors.length)];
+    const c = color;
     for (let i = 0; i < 5; i++) {
       ctx.save();
       ctx.rotate((i * Math.PI * 2) / 5);
@@ -164,6 +158,13 @@ function drawPetal(ctx, x, y, size, angle, opacity, type) {
   ctx.restore();
 }
 
+const PETAL_COLORS = [
+  { fill: 'rgba(255,182,209,1)', stroke: 'rgba(240,130,165,0.6)' },
+  { fill: 'rgba(255,210,225,1)', stroke: 'rgba(240,160,185,0.5)' },
+  { fill: 'rgba(255,228,235,1)', stroke: 'rgba(230,150,175,0.4)' },
+  { fill: 'rgba(255,245,248,1)', stroke: 'rgba(220,160,185,0.35)' },
+];
+
 // Particle system
 const PETAL_COUNT = 38;
 const petals = [];
@@ -183,7 +184,7 @@ function randomPetal() {
     swingAmp:0.25 + Math.random() * 0.55,
     swingSpd:0.008 + Math.random() * 0.012,
     type,
-    color: null,  // assigned at draw time (cached)
+    color: PETAL_COLORS[Math.floor(Math.random() * PETAL_COLORS.length)],
   };
 }
 
@@ -208,7 +209,7 @@ function tick() {
     if (p.y < 40)          alpha *= p.y / 40;
     if (p.y > H - 50)      alpha *= (H - p.y) / 50;
 
-    drawPetal(ctx, p.x, p.y, p.size, p.rot, Math.max(0, alpha), p.type);
+    drawPetal(ctx, p.x, p.y, p.size, p.rot, Math.max(0, alpha), p.type, p.color);
 
     // Reset when off screen
     if (p.y > H + 30 || p.x < -60 || p.x > W + 60) {
