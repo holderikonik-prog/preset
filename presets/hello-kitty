@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hello Kitty</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box }
+    body { background: #fff0f5; overflow: hidden }
+    #w { width: 100vw; height: 100vh; background: #fff0f5; position: relative; overflow: hidden }
+    canvas { display: block; width: 100%; height: 100%; position: absolute; top: 0; left: 0 }
+  </style>
+</head>
+<body>
+  <div id="w">
+    <canvas id="c"></canvas>
+  </div>
+  <script>
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const wp = document.getElementById('w');
+    let W, H;
+
+    const TARGET_MS = 1000 / 30;
+    let lastFrame = 0, last = 0;
+
+    function resize() {
+      W = wp.clientWidth; H = wp.clientHeight;
+      cv.width = W; cv.height = H;
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    function rnd(a, b) { return a + Math.random() * (b - a); }
+
+    // ── DRAW HELLO KITTY ──
+    function drawKitty(c, size, color) {
+      const s = size;
+
+      // Corps / tête (cercle blanc)
+      c.save();
+      c.beginPath();
+      c.arc(0, 0, s, 0, Math.PI * 2);
+      c.fillStyle = color || '#ffffff';
+      c.fill();
+      c.strokeStyle = 'rgba(255,192,203,0.6)';
+      c.lineWidth = s * 0.05;
+      c.stroke();
+
+      // Oreilles gauche
+      c.beginPath();
+      c.moveTo(-s * 0.55, -s * 0.7);
+      c.lineTo(-s * 0.85, -s * 1.15);
+      c.lineTo(-s * 0.2, -s * 0.85);
+      c.closePath();
+      c.fillStyle = color || '#ffffff';
+      c.fill();
+      c.strokeStyle = 'rgba(255,192,203,0.6)';
+      c.lineWidth = s * 0.05;
+      c.stroke();
+
+      // Oreilles droite
+      c.beginPath();
+      c.moveTo(s * 0.55, -s * 0.7);
+      c.lineTo(s * 0.85, -s * 1.15);
+      c.lineTo(s * 0.2, -s * 0.85);
+      c.closePath();
+      c.fillStyle = color || '#ffffff';
+      c.fill();
+      c.strokeStyle = 'rgba(255,192,203,0.6)';
+      c.lineWidth = s * 0.05;
+      c.stroke();
+
+      // Yeux
+      c.fillStyle = '#1a1a1a';
+      c.beginPath(); c.arc(-s * 0.28, -s * 0.1, s * 0.1, 0, Math.PI * 2); c.fill();
+      c.beginPath(); c.arc(s * 0.28, -s * 0.1, s * 0.1, 0, Math.PI * 2); c.fill();
+
+      // Nez (petit point rose)
+      c.fillStyle = '#ffb7c5';
+      c.beginPath(); c.arc(0, s * 0.05, s * 0.07, 0, Math.PI * 2); c.fill();
+
+      // Moustaches gauche
+      c.strokeStyle = '#ccc';
+      c.lineWidth = s * 0.03;
+      c.beginPath(); c.moveTo(-s * 0.1, s * 0.05); c.lineTo(-s * 0.65, -s * 0.05); c.stroke();
+      c.beginPath(); c.moveTo(-s * 0.1, s * 0.12); c.lineTo(-s * 0.65, s * 0.2); c.stroke();
+
+      // Moustaches droite
+      c.beginPath(); c.moveTo(s * 0.1, s * 0.05); c.lineTo(s * 0.65, -s * 0.05); c.stroke();
+      c.beginPath(); c.moveTo(s * 0.1, s * 0.12); c.lineTo(s * 0.65, s * 0.2); c.stroke();
+
+      // Nœud / ruban (côté droit)
+      c.save();
+      c.translate(s * 0.55, -s * 0.55);
+      // nœud gauche
+      c.beginPath();
+      c.moveTo(0, 0);
+      c.bezierCurveTo(-s*0.28, -s*0.22, -s*0.35, s*0.08, 0, 0);
+      c.fillStyle = '#ff85a1';
+      c.fill();
+      // nœud droite
+      c.beginPath();
+      c.moveTo(0, 0);
+      c.bezierCurveTo(s*0.28, -s*0.22, s*0.35, s*0.08, 0, 0);
+      c.fillStyle = '#ff85a1';
+      c.fill();
+      // centre
+      c.beginPath(); c.arc(0, 0, s * 0.07, 0, Math.PI * 2);
+      c.fillStyle = '#ff4d79'; c.fill();
+      c.restore();
+
+      c.restore();
+    }
+
+    // ── DRAW STAR ──
+    function drawStar(c, size, color) {
+      c.save();
+      c.fillStyle = color;
+      c.beginPath();
+      for (let i = 0; i < 5; i++) {
+        const angle = (i * 4 * Math.PI) / 5 - Math.PI / 2;
+        const x = Math.cos(angle) * size;
+        const y = Math.sin(angle) * size;
+        i === 0 ? c.moveTo(x, y) : c.lineTo(x, y);
+      }
+      c.closePath(); c.fill();
+      c.restore();
+    }
+
+    // ── DRAW HEART ──
+    function drawHeart(c, size, color) {
+      c.save();
+      c.fillStyle = color;
+      c.beginPath();
+      c.moveTo(0, size * 0.3);
+      c.bezierCurveTo(-size * 1.2, -size * 0.6, -size * 2, size * 0.4, 0, size * 1.2);
+      c.bezierCurveTo(size * 2, size * 0.4, size * 1.2, -size * 0.6, 0, size * 0.3);
+      c.closePath(); c.fill();
+      c.restore();
+    }
+
+    // ── PARTICLE TYPES ──
+    const TYPES = ['kitty', 'kitty', 'kitty', 'heart', 'star', 'heart'];
+    const BOW_COLORS = ['#ff85a1', '#ffb7c5', '#ff69b4', '#ffd1dc', '#ffffff'];
+    const KITTY_TINTS = ['#ffffff', '#fff0f5', '#ffe4e1', '#ffd1dc'];
+
+    class Particle {
+      constructor(init = false) { this.reset(init); }
+      reset(init = false) {
+        this.type = TYPES[Math.floor(Math.random() * TYPES.length)];
+        this.size = rnd(10, 28);
+        this.x = rnd(-this.size, W + this.size);
+        this.y = init ? rnd(-H, H * 0.3) : -this.size * 2 - rnd(0, 300);
+        this.vy = rnd(0.5, 1.6);
+        this.vx = rnd(-0.3, 0.3);
+        this.rot = rnd(0, Math.PI * 2);
+        this.vrot = rnd(-0.015, 0.015);
+        this.alpha = rnd(0.5, 0.92);
+        this.wobble = rnd(0, Math.PI * 2);
+        this.wobbleSpd = rnd(0.02, 0.05);
+        this.color = this.type === 'kitty'
+          ? KITTY_TINTS[Math.floor(Math.random() * KITTY_TINTS.length)]
+          : BOW_COLORS[Math.floor(Math.random() * BOW_COLORS.length)];
+        this.swing = rnd(0.3, 1.2) * (Math.random() > 0.5 ? 1 : -1);
+      }
+      update(dt) {
+        this.wobble += this.wobbleSpd * dt;
+        this.rot += this.vrot * dt;
+        this.y += this.vy * dt;
+        this.x += this.vx * dt + Math.sin(this.wobble) * 0.25 * this.swing * dt;
+        if (this.y > H + this.size * 3) this.reset();
+      }
+      draw(c) {
+        c.save();
+        c.globalAlpha = this.alpha;
+        c.translate(this.x, this.y);
+        c.rotate(this.rot);
+        if (this.type === 'kitty') {
+          drawKitty(c, this.size, this.color);
+        } else if (this.type === 'heart') {
+          drawHeart(c, this.size * 0.4, this.color);
+        } else if (this.type === 'star') {
+          drawStar(c, this.size * 0.5, this.color);
+        }
+        c.restore();
+      }
+    }
+
+    // ── SPARKLE ──
+    class Sparkle {
+      constructor() { this.reset(true); }
+      reset(init = false) {
+        this.x = rnd(0, W); this.y = init ? rnd(0, H) : rnd(0, H);
+        this.life = 0; this.maxLife = rnd(40, 90);
+        this.size = rnd(1.5, 4);
+        this.alpha = rnd(0.3, 0.8);
+        this.color = BOW_COLORS[Math.floor(Math.random() * BOW_COLORS.length)];
+      }
+      update(dt) {
+        this.life += dt;
+        if (this.life > this.maxLife) this.reset();
+      }
+      draw(c) {
+        const t = this.life / this.maxLife;
+        const a = this.alpha * (t < 0.2 ? t / 0.2 : t > 0.7 ? (1 - t) / 0.3 : 1);
+        c.save();
+        c.globalAlpha = a;
+        c.fillStyle = this.color;
+        c.beginPath(); c.arc(this.x, this.y, this.size, 0, Math.PI * 2); c.fill();
+        c.restore();
+      }
+    }
+
+    // ── INIT ──
+    const particles = [];
+    for (let i = 0; i < 22; i++) particles.push(new Particle(true));
+
+    const sparkles = [];
+    for (let i = 0; i < 18; i++) sparkles.push(new Sparkle());
+
+    // ── BG GRADIENT (pre-built) ──
+    function drawBg() {
+      const grad = ctx.createLinearGradient(0, 0, 0, H);
+      grad.addColorStop(0, '#fff0f5');
+      grad.addColorStop(1, '#ffe4ef');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    // ── LOOP ──
+    function loop(ts) {
+      if (ts - lastFrame < TARGET_MS) { requestAnimationFrame(loop); return; }
+      const dt = Math.min((ts - last) / 16.67, 3);
+      last = ts; lastFrame = ts;
+
+      drawBg();
+
+      for (const s of sparkles) { s.update(dt); s.draw(ctx); }
+      for (const p of particles) { p.update(dt); p.draw(ctx); }
+
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
