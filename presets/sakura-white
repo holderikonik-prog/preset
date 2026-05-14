@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #fff; width: 100%; height: 100%; overflow: hidden; }
+  #w {
+    position: absolute; inset: 0;
+    background: #ffffff;
+    overflow: hidden;
+  }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .kanji {
+    position: absolute;
+    font-family: 'Hiragino Mincho ProN', 'Yu Mincho', 'MS Mincho', serif;
+    color: rgba(220, 150, 175, 0.12);
+    pointer-events: none; user-select: none; line-height: 1;
+  }
+  .kanji-1 { font-size: 110px; top: 5%; right: 6%; letter-spacing: 8px; writing-mode: vertical-rl; }
+  .kanji-2 { font-size: 70px; bottom: 10%; left: 5%; letter-spacing: 6px; writing-mode: vertical-rl; }
+</style>
+</head>
+<body>
+<div id="w">
+  <canvas id="c"></canvas>
+  <div class="kanji kanji-1">桜</div>
+  <div class="kanji kanji-2">花びら</div>
+</div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W = window.innerWidth, H = window.innerHeight;
+
+function resize(w, h) { W = w; H = h; canvas.width = W; canvas.height = H; }
+
+function drawPetal(ctx, x, y, size, angle, opacity, type, color) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(angle); ctx.globalAlpha = opacity;
+  if (type === 0) {
+    for (let i = 0; i < 5; i++) {
+      ctx.save(); ctx.rotate((i * Math.PI * 2) / 5);
+      ctx.beginPath(); ctx.moveTo(0, 0);
+      ctx.bezierCurveTo(size*0.4,-size*0.2,size*0.6,-size*0.8,0,-size);
+      ctx.bezierCurveTo(-size*0.6,-size*0.8,-size*0.4,-size*0.2,0,0);
+      ctx.fillStyle = color.fill; ctx.strokeStyle = color.stroke; ctx.lineWidth = 0.5;
+      ctx.fill(); ctx.stroke(); ctx.restore();
+    }
+    ctx.beginPath(); ctx.arc(0,0,size*0.12,0,Math.PI*2);
+    ctx.fillStyle = 'rgba(255,160,190,0.8)'; ctx.fill();
+  } else if (type === 1) {
+    ctx.beginPath(); ctx.moveTo(0,0);
+    ctx.bezierCurveTo(size*0.5,-size*0.3,size*0.7,-size*0.9,0,-size*1.2);
+    ctx.bezierCurveTo(-size*0.7,-size*0.9,-size*0.5,-size*0.3,0,0);
+    ctx.fillStyle = 'rgba(255,200,220,0.85)'; ctx.strokeStyle = 'rgba(230,150,175,0.4)';
+    ctx.lineWidth = 0.4; ctx.fill(); ctx.stroke();
+  } else {
+    ctx.beginPath(); ctx.arc(0,0,size*0.5,0,Math.PI*2);
+    ctx.fillStyle = 'rgba(255,215,228,0.7)'; ctx.fill();
+  }
+  ctx.restore();
+}
+
+const PETAL_COLORS = [
+  { fill: 'rgba(255,182,209,1)', stroke: 'rgba(240,130,165,0.6)' },
+  { fill: 'rgba(255,210,225,1)', stroke: 'rgba(240,160,185,0.5)' },
+  { fill: 'rgba(255,228,235,1)', stroke: 'rgba(230,150,175,0.4)' },
+  { fill: 'rgba(255,245,248,1)', stroke: 'rgba(220,160,185,0.35)' },
+];
+
+const PETAL_COUNT = 38;
+const petals = [];
+
+function randomPetal() {
+  const type = Math.random() < 0.4 ? 0 : Math.random() < 0.6 ? 1 : 2;
+  return {
+    x: Math.random()*(W+60)-30, y: Math.random()*-H-20,
+    size: type===0 ? 6+Math.random()*8 : type===1 ? 4+Math.random()*6 : 2+Math.random()*3,
+    speedY: 0.4+Math.random()*0.9, speedX: (Math.random()-0.5)*0.6,
+    rot: Math.random()*Math.PI*2, rotSpeed: (Math.random()-0.5)*0.022,
+    opacity: 0.55+Math.random()*0.45, swing: Math.random()*Math.PI*2,
+    swingAmp: 0.25+Math.random()*0.55, swingSpd: 0.008+Math.random()*0.012,
+    type, color: PETAL_COLORS[Math.floor(Math.random()*PETAL_COLORS.length)],
+  };
+}
+
+for (let i = 0; i < PETAL_COUNT; i++) {
+  const p = randomPetal(); p.y = Math.random()*H; petals.push(p);
+}
+
+function tick() {
+  ctx.clearRect(0,0,W,H);
+  for (const p of petals) {
+    p.swing += p.swingSpd;
+    p.x += p.speedX + Math.sin(p.swing)*p.swingAmp;
+    p.y += p.speedY; p.rot += p.rotSpeed;
+    let alpha = p.opacity;
+    if (p.y < 40) alpha *= p.y/40;
+    if (p.y > H-50) alpha *= (H-p.y)/50;
+    drawPetal(ctx, p.x, p.y, p.size, p.rot, Math.max(0,alpha), p.type, p.color);
+    if (p.y > H+30 || p.x < -60 || p.x > W+60) Object.assign(p, randomPetal());
+  }
+  requestAnimationFrame(tick);
+}
+
+window.addEventListener('resize', () => resize(window.innerWidth, window.innerHeight));
+resize(W, H);
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
